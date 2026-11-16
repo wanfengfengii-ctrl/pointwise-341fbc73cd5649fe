@@ -21,6 +21,9 @@ class Archive:
     def put_model(self, model_id, definition):
         return self.models.put_model(model_id, definition)
 
+    def put_native_model(self, model_id, definition):
+        return self.models.put_native_model(model_id, definition)
+
     def get_model(self, model_id, revision=None):
         return self.models.get_model(model_id, revision)
 

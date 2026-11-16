@@ -92,3 +92,52 @@ def cohort(states, initial, time):
 
 def dumps(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def native_model(value):
+    """Translate the native definition into the one canonical stored shape.
+
+    The canonical shape is the legacy document: state and event identity strings,
+    ordered metric directory and signed reward vectors.  Event directory order,
+    identities and endpoints are preserved; a self event stays a self event.
+    """
+    try:
+        if not isinstance(value, dict):
+            raise ValidationError("malformed native model")
+        state_ids = value["state_ids"]
+        metric_ids = value["metric_ids"]
+        if not isinstance(state_ids, (list, tuple)) or not isinstance(metric_ids, (list, tuple)):
+            raise ValidationError("state_ids and metric_ids must be ordered lists")
+        state_ids = list(state_ids)
+        metric_ids = list(metric_ids)
+        if not 1 <= len(state_ids) <= 6:
+            raise ValidationError("one to six states required")
+        state_ids = [identifier(x) for x in state_ids]
+        if len(set(state_ids)) != len(state_ids):
+            raise ValidationError("duplicate state identity")
+        if not 1 <= len(metric_ids) <= 3:
+            raise ValidationError("one to three metrics required")
+        metric_ids = [identifier(x) for x in metric_ids]
+        if len(set(metric_ids)) != len(metric_ids):
+            raise ValidationError("duplicate metric")
+        residence = value["residence"]
+        if not isinstance(residence, (list, tuple)) or len(residence) != len(state_ids):
+            raise ValidationError("residence must have one row per state")
+        states = [{"id": state_ids[i], "reward": vector(residence[i], len(metric_ids))}
+                  for i in range(len(state_ids))]
+        raw_events = value["events"]
+        if not isinstance(raw_events, (list, tuple)):
+            raise ValidationError("events must be a list")
+        events = []
+        for event in raw_events:
+            source, target = event["source"], event["target"]
+            if type(source) is not int or type(target) is not int:
+                raise ValidationError("event endpoints must be integer indices")
+            if not 0 <= source < len(state_ids) or not 0 <= target < len(state_ids):
+                raise ValidationError("unknown event endpoint")
+            events.append({"id": identifier(event["id"]), "source": state_ids[source],
+                           "target": state_ids[target], "rate": event["rate"],
+                           "reward": event["payment"]})
+        return model({"metrics": metric_ids, "states": states, "events": events})
+    except (KeyError, TypeError, IndexError) as exc:
+        raise ValidationError("malformed native model") from exc

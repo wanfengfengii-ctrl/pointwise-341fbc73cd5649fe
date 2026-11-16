@@ -18,7 +18,7 @@ class Tasks:
                 if old["binding"] != binding:
                     raise RequestConflict("request identity already bound to different arguments")
                 return old["task_id"]
-            number, definition = self.models._resolve(db, model_id, revision)
+            number, definition = self.models._canonical(db, model_id, revision)
             row = db.execute("SELECT payload FROM cohorts WHERE cohort_id=?", (cohort_id,)).fetchone()
             if row is None:
                 raise NotFound("cohort")

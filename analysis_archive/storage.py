@@ -22,6 +22,33 @@ SCHEMA = (
        payload TEXT NOT NULL, receipt TEXT NOT NULL UNIQUE)""",
 )
 
+# Format-two business tables.  They are the only active model directory after an
+# upgrade; the format-one model_revisions/model_heads tables become an audit copy.
+TARGET_SCHEMA = (
+    """CREATE TABLE target_model_revisions(
+       model_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>0),
+       payload TEXT NOT NULL, PRIMARY KEY(model_id,revision))""",
+    """CREATE TABLE target_model_heads(
+       model_id TEXT PRIMARY KEY, revision INTEGER NOT NULL,
+       FOREIGN KEY(model_id,revision) REFERENCES target_model_revisions(model_id,revision))""",
+)
+
+TASK_SCHEMA = (
+    """CREATE TABLE tasks(
+       task_id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL UNIQUE,
+       binding TEXT NOT NULL, model_id TEXT NOT NULL, revision INTEGER NOT NULL,
+       parameters TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('pending','succeeded')),
+       FOREIGN KEY(model_id,revision) REFERENCES target_model_revisions(model_id,revision))""",
+)
+
+RESULT_SCHEMA = (
+    """CREATE TABLE results(
+       task_id INTEGER PRIMARY KEY REFERENCES tasks(task_id),
+       payload TEXT NOT NULL, receipt TEXT NOT NULL UNIQUE)""",
+)
+
+FORMATS = ("1", "2")
+
 
 class Store:
     """Single-worker SQLite owner; transaction is also available to storage adapters."""
@@ -39,7 +66,7 @@ class Store:
                 elif "archive_meta" not in tables:
                     raise ArchiveError("not an analysis archive")
                 row = db.execute("SELECT value FROM archive_meta WHERE key='format'").fetchone()
-                if row is None or row[0] != "1":
+                if row is None or row[0] not in FORMATS:
                     raise ArchiveError("unsupported archive format")
         except BaseException:
             self.connection.close()
@@ -55,6 +82,15 @@ class Store:
         except BaseException:
             db.rollback()
             raise
+
+    def format(self, db=None):
+        """Current archive format; callers must re-read because upgrade() can switch it."""
+        db = self.connection if db is None else db
+        row = db.execute("SELECT value FROM archive_meta WHERE key='format'").fetchone()
+        return row[0] if row is not None else None
+
+    def target(self, db=None):
+        return self.format(db) == "2"
 
     def close(self):
         self.connection.close()
